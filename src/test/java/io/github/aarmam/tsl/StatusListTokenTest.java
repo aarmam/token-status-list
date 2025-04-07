@@ -42,7 +42,7 @@ class StatusListTokenTest extends BaseTest {
                 .signingKey(signingKeyJwt.toECKey().toECPrivateKey())
                 .keyId(signingKeyJwt.getKeyID())
                 .build();
-        SignedJWT statusListJwt = statusListToken.toSignedJWT();
+        SignedJWT statusListJwt = SignedJWT.parse(statusListToken.toSignedJWT());
         JWSVerifier verifier = new ECDSAVerifier(signingKeyJwt.toECKey().toECPublicKey());
         assertThat(statusListJwt.verify(verifier), equalTo(true));
         JWTClaimsSet claims = statusListJwt.getJWTClaimsSet();
@@ -50,7 +50,7 @@ class StatusListTokenTest extends BaseTest {
         assertThat(claims.getIssueTime().toInstant(), equalTo(iat));
         assertThat(claims.getExpirationTime().toInstant(), equalTo(exp));
         Map<String, Object> statusListMap = claims.getJSONObjectClaim("status_list");
-        assertThat(statusListMap, hasEntry("bits", 1));
+        assertThat(statusListMap, hasEntry("bits", 1L));
         assertThat(statusListMap, hasEntry("lst", "eNrbuRgAAhcBXQ"));
     }
 
@@ -105,8 +105,8 @@ class StatusListTokenTest extends BaseTest {
                 .signingKey(signingKeyJwt.toECKey().toECPrivateKey())
                 .keyId(signingKeyJwt.getKeyID())
                 .build();
-        SignedJWT signedJWT = statusListToken.toSignedJWT();
-        StatusList statusListFromJwt = StatusListToken.verifySignatureAndGetStatusList(signedJWT.serialize(), signingKey.getPublic());
+        SignedJWT signedJwt = SignedJWT.parse(statusListToken.toSignedJWT());
+        StatusList statusListFromJwt = StatusListToken.verifySignatureAndGetStatusList(signedJwt.serialize(), signingKey.getPublic());
 
         assertThat(statusListFromJwt.get(0), equalTo(1));
         assertThat(statusListFromJwt.get(1), equalTo(0));

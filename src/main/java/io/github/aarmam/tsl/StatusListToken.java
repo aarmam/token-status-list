@@ -126,7 +126,7 @@ public class StatusListToken {
      * @throws JOSEException If there's an error during JWT signing
      * @throws IOException   If there's an error encoding the Status List
      */
-    public SignedJWT toSignedJWT() throws JOSEException, IOException {
+    public String toSignedJWT() throws JOSEException, IOException {
         JWTClaimsSet claims = new JWTClaimsSet.Builder()
                 .subject(subject)
                 .issueTime(Date.from(issuedAt))
@@ -138,10 +138,10 @@ public class StatusListToken {
                 .type(JOSE_STATUS_LIST_TYP_JWT)
                 .keyID(keyId)
                 .build();
-        SignedJWT signedJWT = new SignedJWT(header, claims);
+        SignedJWT signedJwt = new SignedJWT(header, claims);
         JWSSigner signer = Utils.getSigner(signingKey);
-        signedJWT.sign(signer);
-        return signedJWT;
+        signedJwt.sign(signer);
+        return signedJwt.serialize();
     }
 
     /**
