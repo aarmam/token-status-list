@@ -16,6 +16,26 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class StatusListTest extends BaseTest {
 
+    private static void assertStatusList(StatusList decodedStatusList) {
+        assertThat(decodedStatusList, is(notNullValue()));
+        assertThat(decodedStatusList.get(0), equalTo(1));
+        assertThat(decodedStatusList.get(1), equalTo(0));
+        assertThat(decodedStatusList.get(2), equalTo(0));
+        assertThat(decodedStatusList.get(3), equalTo(1));
+        assertThat(decodedStatusList.get(4), equalTo(1));
+        assertThat(decodedStatusList.get(5), equalTo(1));
+        assertThat(decodedStatusList.get(6), equalTo(0));
+        assertThat(decodedStatusList.get(7), equalTo(1));
+        assertThat(decodedStatusList.get(8), equalTo(1));
+        assertThat(decodedStatusList.get(9), equalTo(1));
+        assertThat(decodedStatusList.get(10), equalTo(0));
+        assertThat(decodedStatusList.get(11), equalTo(0));
+        assertThat(decodedStatusList.get(12), equalTo(0));
+        assertThat(decodedStatusList.get(13), equalTo(1));
+        assertThat(decodedStatusList.get(14), equalTo(0));
+        assertThat(decodedStatusList.get(15), equalTo(1));
+    }
+
     @Test
     void testStatusListEncoding1Bit() throws IOException {
         StatusList statusList = exampleStatusList1Bit();
@@ -51,31 +71,32 @@ class StatusListTest extends BaseTest {
     }
 
     @Test
-    void testStatusListFromEncodedData() throws IOException {
+    void testBuildFromBytes() throws IOException {
         StatusList statusList = exampleStatusList1Bit();
         byte[] encoded = statusList.encodeAsBytes();
-        StatusList decodedStatusList = StatusList.buildFromEncoded()
+        StatusList decodedStatusList = StatusList.buildFromBytes()
                 .bits(1)
                 .list(encoded)
                 .build();
-        assertThat(decodedStatusList, is(notNullValue()));
+        assertStatusList(decodedStatusList);
+    }
 
-        assertThat(decodedStatusList.get(0), equalTo(1));
-        assertThat(decodedStatusList.get(1), equalTo(0));
-        assertThat(decodedStatusList.get(2), equalTo(0));
-        assertThat(decodedStatusList.get(3), equalTo(1));
-        assertThat(decodedStatusList.get(4), equalTo(1));
-        assertThat(decodedStatusList.get(5), equalTo(1));
-        assertThat(decodedStatusList.get(6), equalTo(0));
-        assertThat(decodedStatusList.get(7), equalTo(1));
-        assertThat(decodedStatusList.get(8), equalTo(1));
-        assertThat(decodedStatusList.get(9), equalTo(1));
-        assertThat(decodedStatusList.get(10), equalTo(0));
-        assertThat(decodedStatusList.get(11), equalTo(0));
-        assertThat(decodedStatusList.get(12), equalTo(0));
-        assertThat(decodedStatusList.get(13), equalTo(1));
-        assertThat(decodedStatusList.get(14), equalTo(0));
-        assertThat(decodedStatusList.get(15), equalTo(1));
+    @Test
+    void testBuildFromJson() throws IOException {
+        String json = "{\"bits\":1,\"lst\":\"eNrbuRgAAhcBXQ\"}";
+        StatusList statusList = StatusList.buildFromJson()
+                .json(json)
+                .build();
+        assertStatusList(statusList);
+    }
+
+    @Test
+    void testBuildFromCbor() throws IOException {
+        String cbor = "a2646269747301636c73744a78dadbb918000217015d";
+        StatusList statusList = StatusList.buildFromCbor()
+                .cborHex(cbor)
+                .build();
+        assertStatusList(statusList);
     }
 
     @Test

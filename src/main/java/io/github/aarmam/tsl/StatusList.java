@@ -1,6 +1,12 @@
 package io.github.aarmam.tsl;
 
+import com.authlete.cbor.CBORDecoder;
+import com.authlete.cbor.CBORPair;
+import com.authlete.cbor.CBORPairList;
 import com.authlete.cbor.CBORizer;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.NonNull;
 
@@ -10,6 +16,7 @@ import java.io.IOException;
 import java.util.Base64;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.zip.Deflater;
@@ -58,9 +65,7 @@ public class StatusList {
         if (size <= 0) {
             throw new IllegalArgumentException("Size must be positive");
         }
-        if (bits != 1 && bits != 2 && bits != 4 && bits != 8) {
-            throw new IllegalArgumentException("Bits must be 1, 2, 4, or 8");
-        }
+        validateBits(bits);
         this.divisor = 8 / bits;
         if (size % this.divisor != 0) {
             throw new IllegalArgumentException("Size must be a multiple of " + this.divisor +
@@ -72,16 +77,64 @@ public class StatusList {
         this.list = new byte[size / this.divisor];
     }
 
-    @Builder(builderMethodName = "buildFromEncoded")
-    public StatusList(int bits, byte[] list) throws IOException {
+    @Builder(access = AccessLevel.PRIVATE)
+    private StatusList(int bits, byte[] list, int divisor, int size, int valueMask) {
+        validateBits(bits);
+        this.bits = bits;
+        this.list = list;
+        this.divisor = divisor;
+        this.size = size;
+        this.valueMask = valueMask;
+    }
+
+    @Builder(builderMethodName = "buildFromBytes", builderClassName = "BuildFromEncoded")
+    public static StatusList fromBytes(int bits, byte[] list) throws IOException {
+        return StatusList.builder()
+                .bits(bits)
+                .divisor(8 / bits)
+                .valueMask((1 << bits) - 1)
+                .size(list.length * 8 / bits)
+                .list(decompress(list))
+                .build();
+    }
+
+    @Builder(builderMethodName = "buildFromJson", builderClassName = "BuildFromJson")
+    public static StatusList fromJson(String json) throws IOException {
+        ObjectMapper objectMapper = new ObjectMapper();
+        Map<String, Object> result = objectMapper.readValue(json, new TypeReference<>() {
+        });
+        int bits = (Integer) result.get("bits");
+        byte[] list = decompress(Base64.getUrlDecoder().decode((String) result.get("lst")));
+        return StatusList.builder()
+                .bits(bits)
+                .divisor(8 / bits)
+                .valueMask((1 << bits) - 1)
+                .size(list.length * 8 / bits)
+                .list(list)
+                .build();
+    }
+
+    @Builder(builderMethodName = "buildFromCbor", builderClassName = "BuildFromCbor")
+    public static StatusList fromCbor(String cborHex) throws IOException {
+        byte[] cbor = HexFormat.of().parseHex(cborHex);
+        CBORDecoder decoder = new CBORDecoder(new ByteArrayInputStream(cbor));
+        CBORPairList pairList = (CBORPairList) decoder.next();
+        List<? extends CBORPair> pairs = pairList.getPairs();
+        int bits = (int) pairs.getFirst().getValue().parse();
+        byte[] list = decompress((byte[]) pairs.getLast().getValue().parse());
+        return StatusList.builder()
+                .bits(bits)
+                .divisor(8 / bits)
+                .valueMask((1 << bits) - 1)
+                .size(list.length * 8 / bits)
+                .list(list)
+                .build();
+    }
+
+    private static void validateBits(int bits) {
         if (bits != 1 && bits != 2 && bits != 4 && bits != 8) {
             throw new IllegalArgumentException("Bits must be 1, 2, 4, or 8");
         }
-        this.bits = bits;
-        this.divisor = 8 / bits;
-        this.valueMask = (1 << bits) - 1;
-        this.list = decompress(list);
-        this.size = this.list.length * this.divisor;
     }
 
     private static byte[] compress(byte @NonNull [] input) throws IOException {

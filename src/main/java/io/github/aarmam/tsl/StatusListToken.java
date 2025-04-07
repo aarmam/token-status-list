@@ -103,7 +103,7 @@ public class StatusListToken {
         Map<String, Object> statusListClaims = claims.getJSONObjectClaim("status_list");
         int bits = ((Long) statusListClaims.get("bits")).intValue();
         byte[] lst = Base64.getUrlDecoder().decode((String) statusListClaims.get("lst"));
-        return StatusList.buildFromEncoded()
+        return StatusList.buildFromBytes()
                 .bits(bits)
                 .list(lst)
                 .build();
