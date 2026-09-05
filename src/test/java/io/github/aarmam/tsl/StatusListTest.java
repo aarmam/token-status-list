@@ -4,11 +4,15 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.aarmam.tsl.status.AppSpecificStatus;
 import org.junit.jupiter.api.Test;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.Map;
+import java.util.zip.Deflater;
+import java.util.zip.DeflaterOutputStream;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.aMapWithSize;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasEntry;
 import static org.hamcrest.Matchers.is;
@@ -212,6 +216,25 @@ class StatusListTest extends BaseTest {
         IllegalArgumentException missingLst = assertThrows(IllegalArgumentException.class,
                 () -> StatusList.buildFromJson().json("{\"bits\":1}").build());
         assertThat(missingLst.getMessage(), equalTo("Missing or malformed Status List member: lst"));
+    }
+
+    @Test
+    void testDecompressionIsBounded() throws IOException {
+        // 64 MiB of zeroes compresses to a few dozen KiB; a verifier must not inflate it
+        ByteArrayOutputStream compressed = new ByteArrayOutputStream();
+        try (DeflaterOutputStream dos = new DeflaterOutputStream(compressed,
+                new Deflater(Deflater.BEST_COMPRESSION))) {
+            byte[] chunk = new byte[1024 * 1024];
+            for (int i = 0; i < 64; i++) {
+                dos.write(chunk);
+            }
+        }
+        byte[] bomb = compressed.toByteArray();
+        assertThat(bomb.length < 1024 * 1024, is(true));
+
+        IOException thrown = assertThrows(IOException.class,
+                () -> StatusList.buildFromBytes().bits(1).list(bomb).build());
+        assertThat(thrown.getMessage(), containsString("exceeds"));
     }
 
     @Test

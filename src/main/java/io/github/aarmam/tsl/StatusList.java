@@ -42,6 +42,20 @@ public class StatusList {
     static final String LST_KEY = "lst";
     static final String AGGREGATION_URI_KEY = "aggregation_uri";
 
+    /**
+     * The system property that overrides {@link #MAX_DECOMPRESSED_SIZE_BYTES}.
+     */
+    public static final String MAX_DECOMPRESSED_SIZE_PROPERTY = "io.github.aarmam.tsl.maxDecompressedSize";
+    /**
+     * The largest Status List this implementation will decompress, in bytes.
+     * <p>
+     * Defaults to 32 MiB, which holds 268 million statuses at 1 bit each and 33 million at
+     * 8 bits. Override it with the {@value #MAX_DECOMPRESSED_SIZE_PROPERTY} system property
+     * if an ecosystem legitimately issues larger lists.
+     */
+    public static final int MAX_DECOMPRESSED_SIZE_BYTES =
+            Integer.getInteger(MAX_DECOMPRESSED_SIZE_PROPERTY, 32 * 1024 * 1024);
+
     private final int bits;
     private final byte[] list;
     private final int divisor;
@@ -222,10 +236,33 @@ public class StatusList {
         return baos.toByteArray();
     }
 
+    /**
+     * Decompresses a Status List byte array, refusing to inflate beyond
+     * {@link #MAX_DECOMPRESSED_SIZE_BYTES}.
+     * <p>
+     * A Status List Token is fetched from a URI carried inside a Referenced Token, so a
+     * Relying Party decompresses data it does not control. DEFLATE reaches compression
+     * ratios of roughly 1000:1 on the long runs of identical bytes a Status List is made
+     * of, which makes an unbounded inflate a cheap way to exhaust a verifier's heap.
+     *
+     * @param input The compressed Status List
+     * @return The decompressed byte array
+     * @throws IOException If the input is not valid DEFLATE/ZLIB data or exceeds the limit
+     */
     private static byte[] decompress(byte @NonNull [] input) throws IOException {
         try (InflaterInputStream iis = new InflaterInputStream(new ByteArrayInputStream(input))) {
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            iis.transferTo(baos);
+            byte[] buffer = new byte[8192];
+            int total = 0;
+            int read;
+            while ((read = iis.read(buffer)) != -1) {
+                total += read;
+                if (total > MAX_DECOMPRESSED_SIZE_BYTES) {
+                    throw new IOException("Decompressed Status List exceeds " +
+                            MAX_DECOMPRESSED_SIZE_BYTES + " bytes");
+                }
+                baos.write(buffer, 0, read);
+            }
             return baos.toByteArray();
         }
     }
