@@ -1,5 +1,6 @@
 package io.github.aarmam.tsl;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.aarmam.tsl.status.AppSpecificStatus;
 import org.junit.jupiter.api.Test;
 
@@ -12,6 +13,7 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasEntry;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.notNullValue;
+import static org.hamcrest.Matchers.nullValue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class StatusListTest extends BaseTest {
@@ -114,6 +116,45 @@ class StatusListTest extends BaseTest {
                 .cborHex(cbor)
                 .build();
         assertStatusList(statusList);
+    }
+
+    @Test
+    void testAggregationUriRoundTripsThroughJson() throws IOException {
+        StatusList statusList = new StatusList(16, 1, "https://example.com/aggregation");
+        statusList.set(0, 1);
+
+        Map<String, Object> map = statusList.encodeAsMap(true);
+        assertThat(map, hasEntry("aggregation_uri", (Object) "https://example.com/aggregation"));
+
+        StatusList decoded = StatusList.buildFromJson()
+                .json(new ObjectMapper().writeValueAsString(map))
+                .build();
+        assertThat(decoded.getAggregationUri(), equalTo("https://example.com/aggregation"));
+        assertThat(decoded.get(0), equalTo(1));
+    }
+
+    @Test
+    void testAggregationUriRoundTripsThroughCbor() throws IOException {
+        StatusList statusList = exampleStatusList1Bit();
+        StatusList withUri = new StatusList(16, 1, "https://example.com/aggregation");
+        for (int i = 0; i < 16; i++) {
+            withUri.set(i, statusList.get(i));
+        }
+
+        StatusList decoded = StatusList.buildFromCbor()
+                .cborHex(withUri.encodeAsCBORHex())
+                .build();
+        assertThat(decoded.getAggregationUri(), equalTo("https://example.com/aggregation"));
+        assertStatusList(decoded);
+    }
+
+    @Test
+    void testAggregationUriIsOmittedWhenAbsent() throws IOException {
+        StatusList statusList = exampleStatusList1Bit();
+        assertThat(statusList.getAggregationUri(), is(nullValue()));
+        assertThat(statusList.encodeAsMap(true), aMapWithSize(2));
+        // unchanged from the Section 4.3 example
+        assertThat(statusList.encodeAsCBORHex(), equalTo("a2646269747301636c73744a78dadbb918000217015d"));
     }
 
     @Test

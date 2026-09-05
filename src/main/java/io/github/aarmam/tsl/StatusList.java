@@ -8,6 +8,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.AccessLevel;
 import lombok.Builder;
+import lombok.Getter;
 import lombok.NonNull;
 
 import java.io.ByteArrayInputStream;
@@ -39,12 +40,19 @@ import java.util.zip.InflaterInputStream;
 public class StatusList {
     static final String BITS_KEY = "bits";
     static final String LST_KEY = "lst";
+    static final String AGGREGATION_URI_KEY = "aggregation_uri";
 
     private final int bits;
     private final byte[] list;
     private final int divisor;
     private final int size;
     private final int valueMask;
+    /**
+     * The optional URI to the Status List Aggregation for this Status List, as defined in
+     * Section 4.2, Section 4.3 and Section 9.2 of the specification. May be null.
+     */
+    @Getter
+    private final String aggregationUri;
 
     /**
      * Creates a new Status List with the specified size and bits per status.
@@ -65,6 +73,19 @@ public class StatusList {
      *                                  or size is not a multiple of 8/bits
      */
     public StatusList(int size, int bits) {
+        this(size, bits, null);
+    }
+
+    /**
+     * Creates a new Status List that advertises a Status List Aggregation URI.
+     *
+     * @param size           The number of tokens that can be represented in this Status List
+     * @param bits           The number of bits used to represent each token's status (1, 2, 4, or 8)
+     * @param aggregationUri Optional URI to retrieve the Status List Aggregation, or null to omit it
+     * @throws IllegalArgumentException if size is not positive, bits is not 1, 2, 4, or 8,
+     *                                  or size is not a multiple of 8/bits
+     */
+    public StatusList(int size, int bits, String aggregationUri) {
         if (size <= 0) {
             throw new IllegalArgumentException("Size must be positive");
         }
@@ -78,21 +99,23 @@ public class StatusList {
         this.size = size;
         this.valueMask = (1 << bits) - 1;
         this.list = new byte[size / this.divisor];
+        this.aggregationUri = aggregationUri;
     }
 
     @Builder(access = AccessLevel.PRIVATE)
-    private StatusList(int bits, byte[] list, int divisor, int size, int valueMask) {
+    private StatusList(int bits, byte[] list, int divisor, int size, int valueMask, String aggregationUri) {
         validateBits(bits);
         this.bits = bits;
         this.list = list;
         this.divisor = divisor;
         this.size = size;
         this.valueMask = valueMask;
+        this.aggregationUri = aggregationUri;
     }
 
     @Builder(builderMethodName = "buildFromBytes", builderClassName = "BuildFromEncoded")
     public static StatusList fromBytes(int bits, byte[] list) throws IOException {
-        return fromDecompressed(bits, decompress(list));
+        return fromDecompressed(bits, decompress(list), null);
     }
 
     @Builder(builderMethodName = "buildFromJson", builderClassName = "BuildFromJson")
@@ -102,7 +125,7 @@ public class StatusList {
         });
         int bits = (Integer) result.get(BITS_KEY);
         byte[] list = decompress(Base64.getUrlDecoder().decode((String) result.get(LST_KEY)));
-        return fromDecompressed(bits, list);
+        return fromDecompressed(bits, list, (String) result.get(AGGREGATION_URI_KEY));
     }
 
     @Builder(builderMethodName = "buildFromCbor", builderClassName = "BuildFromCbor")
@@ -113,12 +136,15 @@ public class StatusList {
 
         Integer bits = null;
         byte[] list = null;
+        String aggregationUri = null;
         for (CBORPair pair : pairList.getPairs()) {
             Object key = pair.getKey().parse();
             if (BITS_KEY.equals(key)) {
                 bits = ((Number) pair.getValue().parse()).intValue();
             } else if (LST_KEY.equals(key)) {
                 list = (byte[]) pair.getValue().parse();
+            } else if (AGGREGATION_URI_KEY.equals(key)) {
+                aggregationUri = (String) pair.getValue().parse();
             }
         }
         if (bits == null) {
@@ -127,7 +153,7 @@ public class StatusList {
         if (list == null) {
             throw new IllegalArgumentException("Missing required Status List entry: " + LST_KEY);
         }
-        return fromDecompressed(bits, decompress(list));
+        return fromDecompressed(bits, decompress(list), aggregationUri);
     }
 
     /**
@@ -138,17 +164,19 @@ public class StatusList {
      * compressed form would produce a bogus upper bound for {@link #get(int)} and
      * {@link #set(int, int)}, which Section 8.3 requires to reject out-of-range indices.
      *
-     * @param bits The number of bits used to represent each token's status (1, 2, 4, or 8)
-     * @param list The decompressed Status List byte array
+     * @param bits           The number of bits used to represent each token's status (1, 2, 4, or 8)
+     * @param list           The decompressed Status List byte array
+     * @param aggregationUri The optional Status List Aggregation URI, or null
      * @return A new StatusList instance
      */
-    private static StatusList fromDecompressed(int bits, byte[] list) {
+    private static StatusList fromDecompressed(int bits, byte[] list, String aggregationUri) {
         return StatusList.builder()
                 .bits(bits)
                 .divisor(8 / bits)
                 .valueMask((1 << bits) - 1)
                 .size(list.length * 8 / bits)
                 .list(list)
+                .aggregationUri(aggregationUri)
                 .build();
     }
 
@@ -263,6 +291,7 @@ public class StatusList {
      * <ul>
      *   <li>"bits": The number of bits per status (1, 2, 4, or 8)</li>
      *   <li>"lst": The compressed Status List, either as a byte array or base64url-encoded string</li>
+     *   <li>"aggregation_uri" (optional): The Status List Aggregation URI, when one is set</li>
      * </ul>
      *
      * @param base64EncodeList If true, the "lst" value will be base64url-encoded; otherwise, it will be a byte array
@@ -270,10 +299,15 @@ public class StatusList {
      * @throws IOException If compression fails
      */
     public Map<String, Object> encodeAsMap(boolean base64EncodeList) throws IOException {
-        return new LinkedHashMap<>() {{
-            put(BITS_KEY, bits);
-            put(LST_KEY, base64EncodeList ? Base64.getUrlEncoder().withoutPadding().encodeToString(compress(list)) : compress(list));
-        }};
+        Map<String, Object> encoded = new LinkedHashMap<>();
+        encoded.put(BITS_KEY, bits);
+        encoded.put(LST_KEY, base64EncodeList
+                ? Base64.getUrlEncoder().withoutPadding().encodeToString(compress(list))
+                : compress(list));
+        if (aggregationUri != null) {
+            encoded.put(AGGREGATION_URI_KEY, aggregationUri);
+        }
+        return encoded;
     }
 
     /**
@@ -283,17 +317,20 @@ public class StatusList {
      * <ul>
      *   <li>"bits": The number of bits per status (1, 2, 4, or 8)</li>
      *   <li>"lst": The compressed Status List as a byte string</li>
+     *   <li>"aggregation_uri" (optional): The Status List Aggregation URI, when one is set</li>
      * </ul>
      *
      * @return A byte array containing the CBOR-encoded Status List
      * @throws IOException If compression or CBOR encoding fails
      */
     public byte[] encodeAsCBOR() throws IOException {
-        return new CBORizer().cborizeMap(
-                new LinkedHashMap<>() {{
-                    put(BITS_KEY, bits);
-                    put(LST_KEY, compress(list));
-                }}).encode();
+        Map<Object, Object> encoded = new LinkedHashMap<>();
+        encoded.put(BITS_KEY, bits);
+        encoded.put(LST_KEY, compress(list));
+        if (aggregationUri != null) {
+            encoded.put(AGGREGATION_URI_KEY, aggregationUri);
+        }
+        return new CBORizer().cborizeMap(encoded).encode();
     }
 
     /**
