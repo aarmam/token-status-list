@@ -16,6 +16,8 @@ import java.security.interfaces.ECKey;
 import java.security.interfaces.ECPrivateKey;
 import java.security.interfaces.ECPublicKey;
 import java.security.interfaces.EdECKey;
+import java.security.interfaces.EdECPrivateKey;
+import java.security.interfaces.EdECPublicKey;
 import java.security.interfaces.RSAKey;
 import java.security.interfaces.RSAPrivateKey;
 import java.security.interfaces.RSAPublicKey;
@@ -93,6 +95,7 @@ class Utils {
         return switch (key) {
             case ECPrivateKey ecKey -> new ECDSASigner(ecKey);
             case RSAPrivateKey rsaKey -> new RSASSASigner(rsaKey);
+            case EdECPrivateKey edKey -> EdDsaSigner.forSigning(edKey);
             case null, default -> throw new IllegalArgumentException("Unsupported key type");
         };
     }
@@ -101,7 +104,9 @@ class Utils {
         return switch (key) {
             case ECPublicKey ecKey -> new ECDSAVerifier(ecKey);
             case RSAPublicKey rsaKey -> new RSASSAVerifier(rsaKey);
+            case EdECPublicKey edKey -> EdDsaSigner.forVerification(edKey);
             case null, default -> throw new IllegalArgumentException("Unsupported key type or not a public key");
         };
     }
+
 }
