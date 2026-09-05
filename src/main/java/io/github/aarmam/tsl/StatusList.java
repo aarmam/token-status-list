@@ -37,6 +37,9 @@ import java.util.zip.InflaterInputStream;
  * @see <a href="https://datatracker.ietf.org/doc/draft-ietf-oauth-status-list/">IETF OAuth Token Status List specification</a>
  */
 public class StatusList {
+    static final String BITS_KEY = "bits";
+    static final String LST_KEY = "lst";
+
     private final int bits;
     private final byte[] list;
     private final int divisor;
@@ -97,8 +100,8 @@ public class StatusList {
         ObjectMapper objectMapper = new ObjectMapper();
         Map<String, Object> result = objectMapper.readValue(json, new TypeReference<>() {
         });
-        int bits = (Integer) result.get("bits");
-        byte[] list = decompress(Base64.getUrlDecoder().decode((String) result.get("lst")));
+        int bits = (Integer) result.get(BITS_KEY);
+        byte[] list = decompress(Base64.getUrlDecoder().decode((String) result.get(LST_KEY)));
         return fromDecompressed(bits, list);
     }
 
@@ -107,10 +110,24 @@ public class StatusList {
         byte[] cbor = HexFormat.of().parseHex(cborHex);
         CBORDecoder decoder = new CBORDecoder(new ByteArrayInputStream(cbor));
         CBORPairList pairList = (CBORPairList) decoder.next();
-        List<? extends CBORPair> pairs = pairList.getPairs();
-        int bits = (int) pairs.getFirst().getValue().parse();
-        byte[] list = decompress((byte[]) pairs.getLast().getValue().parse());
-        return fromDecompressed(bits, list);
+
+        Integer bits = null;
+        byte[] list = null;
+        for (CBORPair pair : pairList.getPairs()) {
+            Object key = pair.getKey().parse();
+            if (BITS_KEY.equals(key)) {
+                bits = ((Number) pair.getValue().parse()).intValue();
+            } else if (LST_KEY.equals(key)) {
+                list = (byte[]) pair.getValue().parse();
+            }
+        }
+        if (bits == null) {
+            throw new IllegalArgumentException("Missing required Status List entry: " + BITS_KEY);
+        }
+        if (list == null) {
+            throw new IllegalArgumentException("Missing required Status List entry: " + LST_KEY);
+        }
+        return fromDecompressed(bits, decompress(list));
     }
 
     /**
@@ -254,8 +271,8 @@ public class StatusList {
      */
     public Map<String, Object> encodeAsMap(boolean base64EncodeList) throws IOException {
         return new LinkedHashMap<>() {{
-            put("bits", bits);
-            put("lst", base64EncodeList ? Base64.getUrlEncoder().withoutPadding().encodeToString(compress(list)) : compress(list));
+            put(BITS_KEY, bits);
+            put(LST_KEY, base64EncodeList ? Base64.getUrlEncoder().withoutPadding().encodeToString(compress(list)) : compress(list));
         }};
     }
 
@@ -274,8 +291,8 @@ public class StatusList {
     public byte[] encodeAsCBOR() throws IOException {
         return new CBORizer().cborizeMap(
                 new LinkedHashMap<>() {{
-                    put("bits", bits);
-                    put("lst", compress(list));
+                    put(BITS_KEY, bits);
+                    put(LST_KEY, compress(list));
                 }}).encode();
     }
 

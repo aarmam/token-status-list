@@ -117,6 +117,36 @@ class StatusListTest extends BaseTest {
     }
 
     @Test
+    void testBuildFromCborIgnoresEntryOrder() throws IOException {
+        // same map as testBuildFromCbor, with "lst" written before "bits"
+        String cbor = "a2636c73744a78dadbb918000217015d646269747301";
+        StatusList statusList = StatusList.buildFromCbor()
+                .cborHex(cbor)
+                .build();
+        assertStatusList(statusList);
+    }
+
+    @Test
+    void testBuildFromCborWithAdditionalEntries() throws IOException {
+        // {"bits": 1, "lst": h'...', "aggregation_uri": "https://example.com/aggregation"}
+        String cbor = "a3646269747301636c73744a78dadbb918000217015d6f6167677265676174696f6e5f757269"
+                + "781f68747470733a2f2f6578616d706c652e636f6d2f6167677265676174696f6e";
+        StatusList statusList = StatusList.buildFromCbor()
+                .cborHex(cbor)
+                .build();
+        assertStatusList(statusList);
+    }
+
+    @Test
+    void testBuildFromCborRejectsMissingEntries() {
+        // {"bits": 1} with no "lst"
+        String cbor = "a1646269747301";
+        IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
+                () -> StatusList.buildFromCbor().cborHex(cbor).build());
+        assertThat(thrown.getMessage(), equalTo("Missing required Status List entry: lst"));
+    }
+
+    @Test
     void testApplicationSpecificStatus() {
         ExceptionInInitializerError thrown = assertThrows(
                 ExceptionInInitializerError.class,
