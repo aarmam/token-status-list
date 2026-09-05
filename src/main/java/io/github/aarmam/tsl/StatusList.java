@@ -285,4 +285,25 @@ public class StatusList {
     public byte[] encodeAsBytes() throws IOException {
         return compress(list);
     }
+
+    /**
+     * Returns a string representation of all statuses in the list.
+     * <p>
+     * The returned string is in the format [0,0,0,1,0,0,1] where each number
+     * represents the status value at the corresponding index.
+     *
+     * @return A string representation of all statuses in the list
+     */
+    public String printStatuses() {
+        StringBuilder sb = new StringBuilder();
+        sb.append('[');
+        for (int i = 0; i < size; i++) {
+            sb.append(get(i));
+            if (i < size - 1) {
+                sb.append(',');
+            }
+        }
+        sb.append(']');
+        return sb.toString();
+    }
 }
