@@ -244,6 +244,28 @@ class StatusListTokenTest extends BaseTest {
     }
 
     @Test
+    void testExpAndTtlAreOptional() throws Exception {
+        // Section 5.1 / 5.2 make exp and ttl RECOMMENDED, not REQUIRED
+        StatusListToken statusListToken = StatusListToken.builder()
+                .subject("https://example.com/statuslists/1")
+                .issuedAt(iat)
+                .statusList(exampleStatusList1Bit())
+                .signingKey(signingKeyJwt.toECKey().toECPrivateKey())
+                .keyId(signingKeyJwt.getKeyID())
+                .build();
+
+        SignedJWT jwt = SignedJWT.parse(statusListToken.toSignedJWT());
+        assertThat(jwt.getJWTClaimsSet().getExpirationTime(), equalTo(null));
+        assertThat(jwt.getJWTClaimsSet().getClaim("ttl"), equalTo(null));
+        assertThat(StatusListToken.verifySignatureAndGetStatusList(
+                jwt.serialize(), signingKey.getPublic()).size(), equalTo(16));
+
+        byte[] cwt = statusListToken.toSignedCWTBytes();
+        assertThat(StatusListToken.verifySignatureAndGetStatusListFromCWT(
+                cwt, signingKey.getPublic()).size(), equalTo(16));
+    }
+
+    @Test
     void testStatusListTokenFromCWTRejectsWrongKey() throws Exception {
         StatusListToken statusListToken = StatusListToken.builder()
                 .subject("https://example.com/statuslists/1")

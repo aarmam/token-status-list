@@ -60,6 +60,7 @@ public class StatusListToken {
     static final int CWT_STATUS_LIST_CLAIM = 65533;
     static final String STATUS_LIST_CLAIM = "status_list";
     static final int COSE_TYPE_HEADER = 16;
+    static final String TTL_CLAIM = "ttl";
     /**
      * The JWT {@code typ} header value, as required by Section 5.1. Unlike the CWT type
      * header this is the bare subtype, without an {@code application/} prefix.
@@ -349,13 +350,18 @@ public class StatusListToken {
      * @throws IOException   If there's an error encoding the Status List
      */
     public String toSignedJWT() throws JOSEException, IOException {
-        JWTClaimsSet claims = new JWTClaimsSet.Builder()
+        JWTClaimsSet.Builder claimsBuilder = new JWTClaimsSet.Builder()
                 .subject(subject)
                 .issueTime(Date.from(issuedAt))
-                .expirationTime(Date.from(expiresAt))
-                .claim("ttl", timeToLive.getSeconds())
-                .claim(STATUS_LIST_CLAIM, statusList.encodeAsMap(true))
-                .build();
+                .claim(STATUS_LIST_CLAIM, statusList.encodeAsMap(true));
+        // exp and ttl are RECOMMENDED, not REQUIRED (Section 5.1) - omit them when unset
+        if (expiresAt != null) {
+            claimsBuilder.expirationTime(Date.from(expiresAt));
+        }
+        if (timeToLive != null) {
+            claimsBuilder.claim(TTL_CLAIM, timeToLive.getSeconds());
+        }
+        JWTClaimsSet claims = claimsBuilder.build();
         JWSHeader header = new JWSHeader.Builder(Utils.getJWSAlgorithm(signingKey))
                 .type(JOSE_STATUS_LIST_TYP_JWT)
                 .keyID(keyId)
@@ -405,11 +411,17 @@ public class StatusListToken {
      * @throws IOException   If there's an error encoding the Status List
      */
     public byte[] toSignedCWTBytes() throws COSEException, IOException {
-        CWTClaimsSet claims = new CWTClaimsSetBuilder()
+        CWTClaimsSetBuilder claimsBuilder = new CWTClaimsSetBuilder()
                 .sub(subject)
-                .iat(issuedAt.getEpochSecond())
-                .exp(expiresAt.getEpochSecond())
-                .put(CWT_TTL_CLAIM, timeToLive.getSeconds())
+                .iat(issuedAt.getEpochSecond());
+        // exp and the time to live claim are RECOMMENDED, not REQUIRED (Section 5.2)
+        if (expiresAt != null) {
+            claimsBuilder.exp(expiresAt.getEpochSecond());
+        }
+        if (timeToLive != null) {
+            claimsBuilder.put(CWT_TTL_CLAIM, timeToLive.getSeconds());
+        }
+        CWTClaimsSet claims = claimsBuilder
                 .put(CWT_STATUS_LIST_CLAIM, statusList.encodeAsMap(false))
                 .build();
         byte[] encodedClaims = claims.encode();

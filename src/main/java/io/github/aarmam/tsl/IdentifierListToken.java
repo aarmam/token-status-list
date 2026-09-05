@@ -211,13 +211,17 @@ public class IdentifierListToken {
      * @throws IOException   If there's an error encoding the Identifier List
      */
     public String toSignedJWT() throws JOSEException, IOException {
-        JWTClaimsSet claims = new JWTClaimsSet.Builder()
+        JWTClaimsSet.Builder claimsBuilder = new JWTClaimsSet.Builder()
                 .subject(subject)
                 .issueTime(Date.from(issuedAt))
-                .expirationTime(Date.from(expiresAt))
-                .claim("ttl", timeToLive.getSeconds())
-                .claim("identifier_list", identifierList.encodeAsMap())
-                .build();
+                .claim("identifier_list", identifierList.encodeAsMap());
+        if (expiresAt != null) {
+            claimsBuilder.expirationTime(Date.from(expiresAt));
+        }
+        if (timeToLive != null) {
+            claimsBuilder.claim("ttl", timeToLive.getSeconds());
+        }
+        JWTClaimsSet claims = claimsBuilder.build();
         JWSHeader header = new JWSHeader.Builder(Utils.getJWSAlgorithm(signingKey))
                 .type(JOSE_IDENTIFIER_LIST_TYP_JWT)
                 .keyID(keyId)
@@ -246,11 +250,16 @@ public class IdentifierListToken {
      * @throws IOException   If there's an error encoding the Identifier List
      */
     public String toSignedCWT() throws COSEException, IOException {
-        CWTClaimsSet claims = new CWTClaimsSetBuilder()
+        CWTClaimsSetBuilder claimsBuilder = new CWTClaimsSetBuilder()
                 .sub(subject)
-                .iat(issuedAt.getEpochSecond())
-                .exp(expiresAt.getEpochSecond())
-                .put(CWT_TTL_CLAIM, timeToLive.getSeconds())
+                .iat(issuedAt.getEpochSecond());
+        if (expiresAt != null) {
+            claimsBuilder.exp(expiresAt.getEpochSecond());
+        }
+        if (timeToLive != null) {
+            claimsBuilder.put(CWT_TTL_CLAIM, timeToLive.getSeconds());
+        }
+        CWTClaimsSet claims = claimsBuilder
                 .put(CWT_IDENTIFIER_LIST_CLAIM, identifierList.encodeAsCBOR())
                 .build();
         byte[] encodedClaims = claims.encode();
