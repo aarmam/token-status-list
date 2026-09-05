@@ -115,6 +115,7 @@ public class StatusList {
 
     @Builder(builderMethodName = "buildFromBytes", builderClassName = "BuildFromEncoded")
     public static StatusList fromBytes(int bits, byte[] list) throws IOException {
+        validateBits(bits);
         return fromDecompressed(bits, decompress(list), null);
     }
 
@@ -123,9 +124,15 @@ public class StatusList {
         ObjectMapper objectMapper = new ObjectMapper();
         Map<String, Object> result = objectMapper.readValue(json, new TypeReference<>() {
         });
-        int bits = (Integer) result.get(BITS_KEY);
-        byte[] list = decompress(Base64.getUrlDecoder().decode((String) result.get(LST_KEY)));
-        return fromDecompressed(bits, list, (String) result.get(AGGREGATION_URI_KEY));
+        if (!(result.get(BITS_KEY) instanceof Number bits)) {
+            throw new IllegalArgumentException("Missing or malformed Status List member: " + BITS_KEY);
+        }
+        if (!(result.get(LST_KEY) instanceof String lst)) {
+            throw new IllegalArgumentException("Missing or malformed Status List member: " + LST_KEY);
+        }
+        validateBits(bits.intValue());
+        byte[] list = decompress(Base64.getUrlDecoder().decode(lst));
+        return fromDecompressed(bits.intValue(), list, (String) result.get(AGGREGATION_URI_KEY));
     }
 
     @Builder(builderMethodName = "buildFromCbor", builderClassName = "BuildFromCbor")
@@ -166,6 +173,7 @@ public class StatusList {
         if (list == null) {
             throw new IllegalArgumentException("Missing required Status List entry: " + LST_KEY);
         }
+        validateBits(bits);
         return fromDecompressed(bits, decompress(list), aggregationUri);
     }
 
@@ -183,6 +191,7 @@ public class StatusList {
      * @return A new StatusList instance
      */
     private static StatusList fromDecompressed(int bits, byte[] list, String aggregationUri) {
+        validateBits(bits);
         return StatusList.builder()
                 .bits(bits)
                 .divisor(8 / bits)

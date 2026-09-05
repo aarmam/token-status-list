@@ -188,6 +188,33 @@ class StatusListTest extends BaseTest {
     }
 
     @Test
+    void testDecodeRejectsInvalidBits() {
+        // Section 4.2: the allowed values for bits are 1, 2, 4 and 8
+        IllegalArgumentException zeroBits = assertThrows(IllegalArgumentException.class,
+                () -> StatusList.buildFromJson().json("{\"bits\":0,\"lst\":\"eNrbuRgAAhcBXQ\"}").build());
+        assertThat(zeroBits.getMessage(), equalTo("Bits must be 1, 2, 4, or 8"));
+
+        IllegalArgumentException threeBits = assertThrows(IllegalArgumentException.class,
+                () -> StatusList.buildFromJson().json("{\"bits\":3,\"lst\":\"eNrbuRgAAhcBXQ\"}").build());
+        assertThat(threeBits.getMessage(), equalTo("Bits must be 1, 2, 4, or 8"));
+
+        IllegalArgumentException cborZeroBits = assertThrows(IllegalArgumentException.class,
+                () -> StatusList.buildFromCbor().cborHex("a2646269747300636c73744a78dadbb918000217015d").build());
+        assertThat(cborZeroBits.getMessage(), equalTo("Bits must be 1, 2, 4, or 8"));
+    }
+
+    @Test
+    void testDecodeRejectsMalformedMembers() {
+        IllegalArgumentException stringBits = assertThrows(IllegalArgumentException.class,
+                () -> StatusList.buildFromJson().json("{\"bits\":\"1\",\"lst\":\"eNrbuRgAAhcBXQ\"}").build());
+        assertThat(stringBits.getMessage(), equalTo("Missing or malformed Status List member: bits"));
+
+        IllegalArgumentException missingLst = assertThrows(IllegalArgumentException.class,
+                () -> StatusList.buildFromJson().json("{\"bits\":1}").build());
+        assertThat(missingLst.getMessage(), equalTo("Missing or malformed Status List member: lst"));
+    }
+
+    @Test
     void testApplicationSpecificStatus() {
         ExceptionInInitializerError thrown = assertThrows(
                 ExceptionInInitializerError.class,
