@@ -12,10 +12,14 @@ Both mechanisms support tokens secured by JSON Object Signing and Encryption (JO
 
 - ✅ Status List implementation with 1, 2, 4, or 8-bit status values
 - ✅ Identifier List implementation for MSO revocation
-- ✅ JWT and CWT token formats
-- ✅ ZLIB compression for Status Lists
+- ✅ JWT and CWT token formats, in both hex and raw binary
+- ✅ ZLIB compression for Status Lists, with a bounded decompressor
 - ✅ CBOR encoding support
-- ✅ Signature verification
+- ✅ Signature verification plus the Section 8.3 validation rules
+- ✅ Referenced Token `status` claim (`StatusListInfo`)
+- ✅ Status List Aggregation (`aggregation_uri` and the Section 9.3 structure)
+- ✅ ECDSA, RSA and EdDSA (Ed25519 / Ed448) signing keys
+- ✅ Verified against all four Appendix C test vectors
 - ✅ Builder patterns for easy construction
 
 ## Installation
@@ -26,7 +30,7 @@ Add the dependency to your `pom.xml`:
 <dependency>
     <groupId>io.github.aarmam</groupId>
     <artifactId>token-status-list</artifactId>
-    <version>1.0.1</version>
+    <version>1.1.0</version>
 </dependency>
 ```
 
@@ -51,6 +55,12 @@ statusList2Bit.set(2, StatusType.VALID);
 
 // Check status
 int status = statusList.get(0); // Returns 1 (INVALID)
+
+// Section 8.3 requires an out-of-range index to be rejected
+int size = statusList.size(); // 16
+
+// Optionally advertise the Status List Aggregation for this list (Section 9.2)
+StatusList withAggregation = new StatusList(16, 1, "https://example.com/aggregation");
 ```
 
 ### Creating a Status List Token
@@ -68,7 +78,18 @@ StatusListToken token = StatusListToken.builder()
     .build();
 
 String jwt = token.toSignedJWT();
-String cwt = token.toSignedCWT(); // For CWT format
+String cwtHex = token.toSignedCWT();       // hex, for display and logging
+byte[] cwt = token.toSignedCWTBytes();     // the raw binary an HTTP response carries
+```
+
+`exp` and `ttl` are RECOMMENDED rather than REQUIRED, so leaving `expiresAt` or
+`timeToLive` unset simply omits the claim.
+
+Serve the token with the media types from Section 8.1:
+
+```java
+StatusListToken.STATUS_LIST_MEDIA_TYPE_JWT; // application/statuslist+jwt
+StatusListToken.STATUS_LIST_MEDIA_TYPE_CWT; // application/statuslist+cwt
 ```
 
 ### Verifying and Extracting Status List
@@ -80,9 +101,30 @@ StatusList extractedList = StatusListToken.verifySignatureAndGetStatusList(
     publicKey
 );
 
+// Or CWT, from either the hex or the raw binary form
+StatusList fromCwt = StatusListToken.verifySignatureAndGetStatusListFromCWT(
+    cwtBytes,
+    publicKey
+);
+
 // Check if a token at index 3 is revoked
 boolean isRevoked = extractedList.get(3) == StatusType.INVALID.getValue();
 ```
+
+Verification always applies the validation rules of Section 8.3 on top of the
+signature check: the token type, the presence of the required claims and, when
+`exp` is present, expiry. Pass the `uri` from the Referenced Token to also
+enforce step 4a, which requires the Status List Token's subject to match it:
+
+```java
+StatusList extractedList = StatusListToken.verifySignatureAndGetStatusList(
+    jwtString,
+    publicKey,
+    "https://example.com/statuslists/1"
+);
+```
+
+A token that fails one of these rules raises `StatusListValidationException`.
 
 ### Encoding and Decoding
 
@@ -98,11 +140,49 @@ StatusList decoded = StatusList.buildFromJson()
 
 // Encode to CBOR
 byte[] cbor = statusList.encodeAsCBOR();
+String cborHex = statusList.encodeAsCBORHex();
 
 // Decode from CBOR
-StatusList decodedFromCbor = StatusList.buildFromCbor()
+StatusList decodedFromCbor = StatusList.buildFromCborBytes()
     .cbor(cbor)
     .build();
+
+StatusList decodedFromHex = StatusList.buildFromCbor()
+    .cborHex(cborHex)
+    .build();
+```
+
+### Referenced Tokens
+
+A Referenced Token points at its Status List Token through the `status` claim
+(Section 6.2 for JOSE, Section 6.3 for COSE):
+
+```java
+StatusListInfo info = StatusListInfo.of(0, "https://example.com/statuslists/1");
+
+// {"status_list": {"idx": 0, "uri": "https://example.com/statuslists/1"}}
+Map<String, Object> statusClaim = info.encodeAsStatusClaim();
+
+// CWT claim 65535 carries the same structure in CBOR
+byte[] statusClaimCbor = info.encodeAsStatusClaimCBOR();
+
+// Reading it back from a Referenced Token
+StatusListInfo parsed = StatusListInfo.fromStatusClaim(statusClaim);
+StatusList list = StatusListToken.verifySignatureAndGetStatusList(
+    jwtString, publicKey, parsed.getUri());
+int status = list.get(parsed.getIdx());
+```
+
+### Status List Aggregation
+
+```java
+StatusListAggregation aggregation = StatusListAggregation.builder()
+    .statusLists(List.of(
+        "https://example.com/statuslists/1",
+        "https://example.com/statuslists/2"))
+    .build();
+
+String json = aggregation.encodeAsJson(); // served as application/json
 ```
 
 ## Identifier List Usage
@@ -194,16 +274,22 @@ IdentifierListInfo decoded = IdentifierListInfo.buildFromCbor()
 | **Use Case** | General token status tracking | MSO revocation (ISO/IEC 18013-5:2021) |
 | **Data Structure** | Bit array | Map of identifiers |
 | **Token Type (JWT)** | `statuslist+jwt` | `identifierlist+jwt` |
-| **Token Type (CWT)** | `statuslist+cwt` | `identifierlist+cwt` |
+| **Token Type (CWT)** | `application/statuslist+cwt` | `application/identifierlist+cwt` |
 | **Claim ID (CWT)** | 65533 | 65530 |
 | **Revocation Check** | Check bit at index position | Check if identifier is present |
 | **Compression** | ZLIB compression | No compression |
 | **Status Values** | 2, 4, 16, or 256 values | Binary (present = revoked) |
-| **Content-Type** | `application/statuslist+cwt` | `application/identifierlist+cwt` |
+| **Content-Type** | `application/statuslist+jwt`, `application/statuslist+cwt` | not registered by this specification |
+
+## Limits
+
+Decompression is capped at 32 MiB (268 million statuses at 1 bit each) so that a
+Status List Token fetched from an untrusted URI cannot exhaust the heap. Override
+it with the `io.github.aarmam.tsl.maxDecompressedSize` system property.
 
 ## Specifications
 
-- [IETF OAuth Token Status List (draft-ietf-oauth-status-list)](https://datatracker.ietf.org/doc/html/draft-ietf-oauth-status-list)
+- [IETF OAuth Token Status List (draft-ietf-oauth-status-list-21)](https://datatracker.ietf.org/doc/html/draft-ietf-oauth-status-list) - section references in this README and in the Javadoc are to draft-21
 - [ISO/IEC 18013-5:2021 - Personal identification — ISO-compliant driving licence — Part 5: Mobile driving licence (mDL) application](https://www.iso.org/standard/69084.html)
 
 ## Building
