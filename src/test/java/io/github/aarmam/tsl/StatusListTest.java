@@ -126,4 +126,20 @@ class StatusListTest extends BaseTest {
         );
         assertThat(thrown.getException().getMessage(), equalTo("Not a valid application specific status"));
     }
+
+    @Test
+    void testApplicationSpecificStatusRange() {
+        // Section 7.1: 0x03 and 0x0C..0x0F are application specific, nothing else
+        assertThat(ApplicationSpecificStatusType.isApplicationSpecific(0x03), is(true));
+        assertThat(ApplicationSpecificStatusType.isApplicationSpecific(0x0C), is(true));
+        assertThat(ApplicationSpecificStatusType.isApplicationSpecific(0x0D), is(true));
+        assertThat(ApplicationSpecificStatusType.isApplicationSpecific(0x0E), is(true));
+        assertThat(ApplicationSpecificStatusType.isApplicationSpecific(0x0F), is(true));
+
+        // 0x0B was dropped from the range in draft-14 and is reserved for registration
+        assertThat(ApplicationSpecificStatusType.isApplicationSpecific(0x0B), is(false));
+        assertThat(ApplicationSpecificStatusType.isApplicationSpecific(0x00), is(false));
+        assertThat(ApplicationSpecificStatusType.isApplicationSpecific(0x02), is(false));
+        assertThat(ApplicationSpecificStatusType.isApplicationSpecific(0x10), is(false));
+    }
 }
