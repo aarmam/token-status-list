@@ -89,13 +89,7 @@ public class StatusList {
 
     @Builder(builderMethodName = "buildFromBytes", builderClassName = "BuildFromEncoded")
     public static StatusList fromBytes(int bits, byte[] list) throws IOException {
-        return StatusList.builder()
-                .bits(bits)
-                .divisor(8 / bits)
-                .valueMask((1 << bits) - 1)
-                .size(list.length * 8 / bits)
-                .list(decompress(list))
-                .build();
+        return fromDecompressed(bits, decompress(list));
     }
 
     @Builder(builderMethodName = "buildFromJson", builderClassName = "BuildFromJson")
@@ -105,13 +99,7 @@ public class StatusList {
         });
         int bits = (Integer) result.get("bits");
         byte[] list = decompress(Base64.getUrlDecoder().decode((String) result.get("lst")));
-        return StatusList.builder()
-                .bits(bits)
-                .divisor(8 / bits)
-                .valueMask((1 << bits) - 1)
-                .size(list.length * 8 / bits)
-                .list(list)
-                .build();
+        return fromDecompressed(bits, list);
     }
 
     @Builder(builderMethodName = "buildFromCbor", builderClassName = "BuildFromCbor")
@@ -122,6 +110,22 @@ public class StatusList {
         List<? extends CBORPair> pairs = pairList.getPairs();
         int bits = (int) pairs.getFirst().getValue().parse();
         byte[] list = decompress((byte[]) pairs.getLast().getValue().parse());
+        return fromDecompressed(bits, list);
+    }
+
+    /**
+     * Builds a Status List around an already decompressed byte array.
+     * <p>
+     * The number of statuses the list conveys is derived from the <em>decompressed</em>
+     * byte array, as described in Section 4.1 of the specification. Deriving it from the
+     * compressed form would produce a bogus upper bound for {@link #get(int)} and
+     * {@link #set(int, int)}, which Section 8.3 requires to reject out-of-range indices.
+     *
+     * @param bits The number of bits used to represent each token's status (1, 2, 4, or 8)
+     * @param list The decompressed Status List byte array
+     * @return A new StatusList instance
+     */
+    private static StatusList fromDecompressed(int bits, byte[] list) {
         return StatusList.builder()
                 .bits(bits)
                 .divisor(8 / bits)
@@ -220,6 +224,19 @@ public class StatusList {
         final int bytePos = index / divisor;
         final int shift = (index % divisor) * bits;
         return (list[bytePos] >> shift) & valueMask;
+    }
+
+    /**
+     * Returns the number of Referenced Tokens this Status List conveys statuses for.
+     * <p>
+     * Valid indices for {@link #get(int)} and {@link #set(int, int)} run from 0 to
+     * {@code size() - 1}. Section 8.3 of the specification requires a Referenced Token
+     * whose index falls outside this range to be rejected.
+     *
+     * @return The number of statuses in this Status List
+     */
+    public int size() {
+        return size;
     }
 
     /**

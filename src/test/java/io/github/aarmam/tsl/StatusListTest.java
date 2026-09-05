@@ -82,6 +82,23 @@ class StatusListTest extends BaseTest {
     }
 
     @Test
+    void testBuildFromBytesDerivesSizeFromDecompressedList() throws IOException {
+        StatusList statusList = exampleStatusList1Bit();
+        byte[] encoded = statusList.encodeAsBytes();
+        // the 16-entry list compresses to 10 bytes; size must follow the decompressed 2 bytes
+        assertThat(encoded.length, equalTo(10));
+
+        StatusList decodedStatusList = StatusList.buildFromBytes()
+                .bits(1)
+                .list(encoded)
+                .build();
+
+        assertThat(decodedStatusList.size(), equalTo(16));
+        assertThrows(IndexOutOfBoundsException.class, () -> decodedStatusList.get(16));
+        assertThrows(IndexOutOfBoundsException.class, () -> decodedStatusList.get(40));
+    }
+
+    @Test
     void testBuildFromJson() throws IOException {
         String json = "{\"bits\":1,\"lst\":\"eNrbuRgAAhcBXQ\"}";
         StatusList statusList = StatusList.buildFromJson()
