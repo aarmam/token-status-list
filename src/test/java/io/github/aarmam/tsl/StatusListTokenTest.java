@@ -2,6 +2,7 @@ package io.github.aarmam.tsl;
 
 import com.authlete.cbor.CBORDecoder;
 import com.authlete.cbor.CBORTaggedItem;
+import com.authlete.cose.COSEException;
 import com.authlete.cose.COSESign1;
 import com.authlete.cose.COSEVerifier;
 import com.authlete.cwt.CWTClaimsSet;
@@ -11,6 +12,8 @@ import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 import org.junit.jupiter.api.Test;
 
+import java.security.KeyPairGenerator;
+import java.security.PublicKey;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -24,6 +27,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasEntry;
 import static org.hamcrest.Matchers.hasKey;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class StatusListTokenTest extends BaseTest {
     private static final Instant iat = Instant.ofEpochSecond(1686920170);
@@ -96,6 +100,54 @@ class StatusListTokenTest extends BaseTest {
         byte[] lst = (byte[]) statusListMap.get("lst");
         String hexEncoded = HexFormat.of().formatHex(lst);
         assertThat(hexEncoded, equalTo("78dadbb918000217015d"));
+    }
+
+    @Test
+    void testStatusListTokenFromCWT() throws Exception {
+        StatusList statusList = new StatusList(16, 1, "https://example.com/aggregation");
+        StatusList source = exampleStatusList1Bit();
+        for (int i = 0; i < 16; i++) {
+            statusList.set(i, source.get(i));
+        }
+        StatusListToken statusListToken = StatusListToken.builder()
+                .subject("https://example.com/statuslists/1")
+                .issuedAt(iat)
+                .expiresAt(exp)
+                .timeToLive(ttl)
+                .statusList(statusList)
+                .signingKey(signingKeyJwt.toECKey().toECPrivateKey())
+                .keyId(signingKeyJwt.getKeyID())
+                .build();
+
+        StatusList statusListFromCwt = StatusListToken.verifySignatureAndGetStatusListFromCWT(
+                statusListToken.toSignedCWT(), signingKey.getPublic());
+
+        assertThat(statusListFromCwt.size(), equalTo(16));
+        assertThat(statusListFromCwt.getAggregationUri(), equalTo("https://example.com/aggregation"));
+        for (int i = 0; i < 16; i++) {
+            assertThat(statusListFromCwt.get(i), equalTo(source.get(i)));
+        }
+    }
+
+    @Test
+    void testStatusListTokenFromCWTRejectsWrongKey() throws Exception {
+        StatusListToken statusListToken = StatusListToken.builder()
+                .subject("https://example.com/statuslists/1")
+                .issuedAt(iat)
+                .expiresAt(exp)
+                .timeToLive(ttl)
+                .statusList(exampleStatusList1Bit())
+                .signingKey(signingKeyJwt.toECKey().toECPrivateKey())
+                .keyId(signingKeyJwt.getKeyID())
+                .build();
+        String cwt = statusListToken.toSignedCWT();
+
+        KeyPairGenerator keyGen = KeyPairGenerator.getInstance("EC");
+        keyGen.initialize(256);
+        PublicKey otherKey = keyGen.generateKeyPair().getPublic();
+
+        assertThrows(COSEException.class,
+                () -> StatusListToken.verifySignatureAndGetStatusListFromCWT(cwt, otherKey));
     }
 
     @Test

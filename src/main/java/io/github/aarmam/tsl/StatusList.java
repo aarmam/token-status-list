@@ -130,7 +130,20 @@ public class StatusList {
 
     @Builder(builderMethodName = "buildFromCbor", builderClassName = "BuildFromCbor")
     public static StatusList fromCbor(String cborHex) throws IOException {
-        byte[] cbor = HexFormat.of().parseHex(cborHex);
+        return fromCborBytes(HexFormat.of().parseHex(cborHex));
+    }
+
+    /**
+     * Creates a Status List from the CBOR encoding of the StatusList structure defined in
+     * Section 4.3 of the specification.
+     *
+     * @param cbor CBOR-encoded StatusList map
+     * @return A new StatusList instance
+     * @throws IOException              If the CBOR cannot be parsed or the list cannot be decompressed
+     * @throws IllegalArgumentException If a required entry is missing
+     */
+    @Builder(builderMethodName = "buildFromCborBytes", builderClassName = "BuildFromCborBytes")
+    public static StatusList fromCborBytes(byte @NonNull [] cbor) throws IOException {
         CBORDecoder decoder = new CBORDecoder(new ByteArrayInputStream(cbor));
         CBORPairList pairList = (CBORPairList) decoder.next();
 

@@ -1,6 +1,10 @@
 package io.github.aarmam.tsl;
 
 import com.authlete.cbor.CBORByteArray;
+import com.authlete.cbor.CBORDecoder;
+import com.authlete.cbor.CBORPair;
+import com.authlete.cbor.CBORPairList;
+import com.authlete.cbor.CBORTaggedItem;
 import com.authlete.cose.COSEException;
 import com.authlete.cose.COSEProtectedHeader;
 import com.authlete.cose.COSEProtectedHeaderBuilder;
@@ -11,6 +15,7 @@ import com.authlete.cose.COSEUnprotectedHeader;
 import com.authlete.cose.COSEUnprotectedHeaderBuilder;
 import com.authlete.cose.SigStructure;
 import com.authlete.cose.SigStructureBuilder;
+import com.authlete.cose.COSEVerifier;
 import com.authlete.cwt.CWTClaimsSet;
 import com.authlete.cwt.CWTClaimsSetBuilder;
 import com.nimbusds.jose.JOSEException;
@@ -24,6 +29,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.NonNull;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.security.Key;
 import java.security.PublicKey;
@@ -32,6 +38,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.Date;
+import java.util.HexFormat;
 import java.util.Map;
 
 /**
@@ -126,6 +133,60 @@ public class StatusListToken {
                 .bits(bits)
                 .list(lst)
                 .build();
+    }
+
+    /**
+     * Verifies the signature of a Status List CWT and extracts the Status List.
+     * <p>
+     * This is the CWT counterpart of {@link #verifySignatureAndGetStatusList(String, PublicKey)}.
+     *
+     * @param statusListCwtHex     The Status List CWT as a hexadecimal string
+     * @param statusListSigningKey The public key used to verify the CWT signature
+     * @return The extracted Status List if the signature verification is successful
+     * @throws COSEException If the CWT signature is invalid or if there's an error during verification
+     * @throws IOException   If there's an error processing the Status List data
+     */
+    public static StatusList verifySignatureAndGetStatusListFromCWT(@NonNull String statusListCwtHex, @NonNull PublicKey statusListSigningKey) throws COSEException, IOException {
+        return verifySignatureAndGetStatusListFromCWT(HexFormat.of().parseHex(statusListCwtHex), statusListSigningKey);
+    }
+
+    /**
+     * Verifies the signature of a Status List CWT and extracts the Status List.
+     * <p>
+     * The CWT is expected in the raw binary form served by a Status Provider, that is a
+     * tagged COSE_Sign1 (18) whose payload is the CWT Claims Set, as described in
+     * Section 5.2 and Section 8.2.
+     *
+     * @param statusListCwt        The Status List CWT as a byte array
+     * @param statusListSigningKey The public key used to verify the CWT signature
+     * @return The extracted Status List if the signature verification is successful
+     * @throws COSEException If the CWT signature is invalid or if there's an error during verification
+     * @throws IOException   If there's an error processing the Status List data
+     */
+    public static StatusList verifySignatureAndGetStatusListFromCWT(byte @NonNull [] statusListCwt, @NonNull PublicKey statusListSigningKey) throws COSEException, IOException {
+        CBORDecoder decoder = new CBORDecoder(new ByteArrayInputStream(statusListCwt));
+        CBORTaggedItem taggedItem = (CBORTaggedItem) decoder.next();
+        COSESign1 sign1 = (COSESign1) taggedItem.getTagContent();
+
+        COSEVerifier verifier = new COSEVerifier(statusListSigningKey);
+        if (!verifier.verify(sign1)) {
+            throw new COSEException("Invalid CWT signature");
+        }
+
+        byte[] payload = (byte[]) sign1.getPayload().parse();
+        CBORDecoder claimsDecoder = new CBORDecoder(new ByteArrayInputStream(payload));
+        CBORPairList claimsPairList = (CBORPairList) claimsDecoder.next();
+
+        for (CBORPair pair : claimsPairList.getPairs()) {
+            Object key = pair.getKey().parse();
+            if (key instanceof Number number && number.intValue() == CWT_STATUS_LIST_CLAIM) {
+                return StatusList.buildFromCborBytes()
+                        .cbor(pair.getValue().encode())
+                        .build();
+            }
+        }
+
+        throw new COSEException("Missing status list claim (" + CWT_STATUS_LIST_CLAIM + ")");
     }
 
     /**
