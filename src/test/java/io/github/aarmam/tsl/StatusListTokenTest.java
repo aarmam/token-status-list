@@ -130,6 +130,29 @@ class StatusListTokenTest extends BaseTest {
     }
 
     @Test
+    void testSignedCWTBytesAreTheRawWireForm() throws Exception {
+        StatusListToken statusListToken = StatusListToken.builder()
+                .subject("https://example.com/statuslists/1")
+                .issuedAt(iat)
+                .expiresAt(exp)
+                .timeToLive(ttl)
+                .statusList(exampleStatusList1Bit())
+                .signingKey(signingKeyJwt.toECKey().toECPrivateKey())
+                .keyId(signingKeyJwt.getKeyID())
+                .build();
+
+        byte[] cwtBytes = statusListToken.toSignedCWTBytes();
+        // Section 8.2: the response body is binary; the hex form is for readability only
+        // (signing twice yields different ECDSA signatures, so compare the encodings)
+        assertThat(HexFormat.of().parseHex(statusListToken.toSignedCWT()).length, equalTo(cwtBytes.length));
+        assertThat(cwtBytes[0], equalTo((byte) 0xd2)); // tagged COSE_Sign1 (18)
+
+        StatusList decoded = StatusListToken.verifySignatureAndGetStatusListFromCWT(
+                cwtBytes, signingKey.getPublic());
+        assertThat(decoded.size(), equalTo(16));
+    }
+
+    @Test
     void testStatusListTokenFromCWTRejectsWrongKey() throws Exception {
         StatusListToken statusListToken = StatusListToken.builder()
                 .subject("https://example.com/statuslists/1")

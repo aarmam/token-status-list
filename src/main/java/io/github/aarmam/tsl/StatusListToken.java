@@ -235,13 +235,34 @@ public class StatusListToken {
      *   <li>65534 (time to live): Maximum amount of time in seconds that the Status List Token can be cached</li>
      *   <li>65533 (status list): The Status List containing status information for Referenced Tokens</li>
      * </ul>
-     * The CWT protected header includes the type "statuslist+cwt" and is signed using the configured signing key.
+     * The CWT protected header includes the type "application/statuslist+cwt" and is signed
+     * using the configured signing key.
+     * <p>
+     * The hexadecimal encoding is for display and logging only. Section 8.2 requires the
+     * HTTP response body to carry the raw binary form, which {@link #toSignedCWTBytes()}
+     * returns.
      *
      * @return A hexadecimal string representation of the signed CWT
      * @throws COSEException If there's an error during CWT signing or encoding
      * @throws IOException   If there's an error encoding the Status List
      */
     public String toSignedCWT() throws COSEException, IOException {
+        return HexFormat.of().formatHex(toSignedCWTBytes());
+    }
+
+    /**
+     * Converts this Status List Token to a signed CWT in its raw binary form.
+     * <p>
+     * This is the encoding a Status Provider serves as the body of an
+     * {@code application/statuslist+cwt} response: the binary encoding defined in
+     * Section 9.2.1 of RFC 8392, as required by Section 8.2 of the specification. The
+     * examples in the specification are shown in hex purely for readability.
+     *
+     * @return The signed CWT as a byte array
+     * @throws COSEException If there's an error during CWT signing or encoding
+     * @throws IOException   If there's an error encoding the Status List
+     */
+    public byte[] toSignedCWTBytes() throws COSEException, IOException {
         CWTClaimsSet claims = new CWTClaimsSetBuilder()
                 .sub(subject)
                 .iat(issuedAt.getEpochSecond())
@@ -270,6 +291,6 @@ public class StatusListToken {
                 .payload(payload)
                 .signature(signature)
                 .build();
-        return sign1.getTagged().encodeToHex();
+        return sign1.getTagged().encode();
     }
 }
