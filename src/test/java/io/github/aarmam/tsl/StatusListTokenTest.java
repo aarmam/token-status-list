@@ -73,6 +73,11 @@ class StatusListTokenTest extends BaseTest {
         COSESign1 coseSign1 = (COSESign1) taggedItem.getTagContent();
 
         assertThat(verifier.verify(coseSign1), equalTo(true));
+
+        // Section 5.2: protected header 16 (type) carries the full media type
+        assertThat(coseSign1.getProtectedHeader().getParameters(),
+                hasEntry(16, "application/statuslist+cwt"));
+
         CWTClaimsSet claims = CWTClaimsSet.build(coseSign1.getPayload());
         assertThat(claims.getSub(), equalTo("https://example.com/statuslists/1"));
         assertThat(claims.getIat().toInstant(), equalTo(iat));

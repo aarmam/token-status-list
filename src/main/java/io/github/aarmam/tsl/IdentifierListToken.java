@@ -65,8 +65,17 @@ import java.util.Map;
 public class IdentifierListToken {
     static final int CWT_TTL_CLAIM = 65534;
     static final int CWT_IDENTIFIER_LIST_CLAIM = 65530;
-    static final String IDENTIFIER_LIST_TYP_JWT = "identifierlist+jwt";
-    static final String IDENTIFIER_LIST_TYP_CWT = "identifierlist+cwt";
+    /**
+     * The JWT {@code typ} header value: the bare subtype, without an
+     * {@code application/} prefix.
+     */
+    public static final String IDENTIFIER_LIST_TYP_JWT = "identifierlist+jwt";
+    /**
+     * The CWT type (protected header 16) value. As with the Status List Token, RFC 9596
+     * carries a full media type in this header, so it is {@code application/identifierlist+cwt}
+     * and not the bare subtype.
+     */
+    public static final String IDENTIFIER_LIST_TYP_CWT = "application/identifierlist+cwt";
     private static final JOSEObjectType JOSE_IDENTIFIER_LIST_TYP_JWT = new JOSEObjectType(IDENTIFIER_LIST_TYP_JWT);
 
     private String subject;

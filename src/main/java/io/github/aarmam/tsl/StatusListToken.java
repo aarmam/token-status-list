@@ -51,8 +51,27 @@ import java.util.Map;
 public class StatusListToken {
     static final int CWT_TTL_CLAIM = 65534;
     static final int CWT_STATUS_LIST_CLAIM = 65533;
-    static final String STATUS_LIST_TYP_JWT = "statuslist+jwt";
-    static final String STATUS_LIST_TYP_CWT = "statuslist+cwt";
+    /**
+     * The JWT {@code typ} header value, as required by Section 5.1. Unlike the CWT type
+     * header this is the bare subtype, without an {@code application/} prefix.
+     */
+    public static final String STATUS_LIST_TYP_JWT = "statuslist+jwt";
+    /**
+     * The CWT type (protected header 16) value, as required by Section 5.2. RFC 9596
+     * carries a full media type here, so this is {@code application/statuslist+cwt} and
+     * not the bare subtype.
+     */
+    public static final String STATUS_LIST_TYP_CWT = "application/statuslist+cwt";
+    /**
+     * The media type used for HTTP content negotiation of a Status List Token in JWT
+     * format, as defined in Section 8.1 and registered in Section 14.7.
+     */
+    public static final String STATUS_LIST_MEDIA_TYPE_JWT = "application/statuslist+jwt";
+    /**
+     * The media type used for HTTP content negotiation of a Status List Token in CWT
+     * format, as defined in Section 8.1 and registered in Section 14.7.
+     */
+    public static final String STATUS_LIST_MEDIA_TYPE_CWT = STATUS_LIST_TYP_CWT;
     private static final JOSEObjectType JOSE_STATUS_LIST_TYP_JWT = new JOSEObjectType(STATUS_LIST_TYP_JWT);
 
     private String subject;
