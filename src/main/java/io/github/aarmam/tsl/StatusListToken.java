@@ -58,6 +58,8 @@ import java.util.Map;
 public class StatusListToken {
     static final int CWT_TTL_CLAIM = 65534;
     static final int CWT_STATUS_LIST_CLAIM = 65533;
+    static final String STATUS_LIST_CLAIM = "status_list";
+    static final int COSE_TYPE_HEADER = 16;
     /**
      * The JWT {@code typ} header value, as required by Section 5.1. Unlike the CWT type
      * header this is the bare subtype, without an {@code application/} prefix.
@@ -103,8 +105,28 @@ public class StatusListToken {
      * @throws IOException    If there's an error processing the Status List data
      */
     public static StatusList verifySignatureAndGetStatusList(@NonNull String statusListJwt, @NonNull PublicKey statusListSigningKey) throws ParseException, JOSEException, IOException {
-        SignedJWT statusList = SignedJWT.parse(statusListJwt);
-        return verifySignatureAndGetStatusList(statusList, statusListSigningKey);
+        return verifySignatureAndGetStatusList(SignedJWT.parse(statusListJwt), statusListSigningKey, null);
+    }
+
+    /**
+     * Verifies a Status List JWT against the URI the Referenced Token pointed at, and
+     * extracts the Status List.
+     * <p>
+     * In addition to the signature, this applies the validation rules of Section 8.3: the
+     * token type, the presence of the required claims, expiry, and step 4a - the subject
+     * claim MUST equal the uri claim in the status_list object of the Referenced Token.
+     *
+     * @param statusListJwt        The Status List JWT string to verify and extract from
+     * @param statusListSigningKey The public key used to verify the JWT signature
+     * @param expectedUri          The uri from the Referenced Token's status_list claim, or null to skip step 4a
+     * @return The extracted Status List if verification and validation succeed
+     * @throws ParseException                  If the JWT string cannot be parsed
+     * @throws JOSEException                   If the JWT signature is invalid
+     * @throws IOException                     If there's an error processing the Status List data
+     * @throws StatusListValidationException   If the token fails a Section 8.3 validation rule
+     */
+    public static StatusList verifySignatureAndGetStatusList(@NonNull String statusListJwt, @NonNull PublicKey statusListSigningKey, String expectedUri) throws ParseException, JOSEException, IOException {
+        return verifySignatureAndGetStatusList(SignedJWT.parse(statusListJwt), statusListSigningKey, expectedUri);
     }
 
     /**
@@ -121,18 +143,89 @@ public class StatusListToken {
      * @throws IOException    If there's an error processing the Status List data
      */
     public static StatusList verifySignatureAndGetStatusList(@NonNull SignedJWT statusList, @NonNull PublicKey statusListSigningKey) throws ParseException, JOSEException, IOException {
-        JWTClaimsSet claims = statusList.getJWTClaimsSet();
+        return verifySignatureAndGetStatusList(statusList, statusListSigningKey, null);
+    }
+
+    /**
+     * Verifies a parsed Status List JWT against the URI the Referenced Token pointed at,
+     * and extracts the Status List.
+     * <p>
+     * In addition to the signature, this applies the validation rules of Section 8.3: the
+     * token type, the presence of the required claims, expiry, and step 4a - the subject
+     * claim MUST equal the uri claim in the status_list object of the Referenced Token.
+     *
+     * @param statusList           The parsed SignedJWT object containing the Status List
+     * @param statusListSigningKey The public key used to verify the JWT signature
+     * @param expectedUri          The uri from the Referenced Token's status_list claim, or null to skip step 4a
+     * @return The extracted Status List if verification and validation succeed
+     * @throws ParseException                  If there's an error parsing the JWT claims
+     * @throws JOSEException                   If the JWT signature is invalid
+     * @throws IOException                     If there's an error processing the Status List data
+     * @throws StatusListValidationException   If the token fails a Section 8.3 validation rule
+     */
+    public static StatusList verifySignatureAndGetStatusList(@NonNull SignedJWT statusList, @NonNull PublicKey statusListSigningKey, String expectedUri) throws ParseException, JOSEException, IOException {
         JWSVerifier verifier = Utils.getVerifier(statusListSigningKey);
         if (!statusList.verify(verifier)) {
             throw new JOSEException("Invalid JWT signature");
         }
-        Map<String, Object> statusListClaims = claims.getJSONObjectClaim("status_list");
-        int bits = ((Long) statusListClaims.get("bits")).intValue();
-        byte[] lst = Base64.getUrlDecoder().decode((String) statusListClaims.get("lst"));
+
+        // Section 8.3 step 3b/4: the type distinguishes a Status List Token from any other
+        // JWT the same key signs, so a Status List Token must not be accepted without it.
+        JOSEObjectType type = statusList.getHeader().getType();
+        if (type == null || !STATUS_LIST_TYP_JWT.equals(type.toString())) {
+            throw new StatusListValidationException(
+                    "Expected JWT type " + STATUS_LIST_TYP_JWT + " but was " + type);
+        }
+
+        JWTClaimsSet claims = statusList.getJWTClaimsSet();
+        validateClaims(claims.getSubject(), claims.getIssueTime() == null ? null : claims.getIssueTime().toInstant(),
+                claims.getExpirationTime() == null ? null : claims.getExpirationTime().toInstant(), expectedUri);
+
+        Map<String, Object> statusListClaims = claims.getJSONObjectClaim(STATUS_LIST_CLAIM);
+        if (statusListClaims == null) {
+            throw new StatusListValidationException("Missing required claim: " + STATUS_LIST_CLAIM);
+        }
+        Object bits = statusListClaims.get(StatusList.BITS_KEY);
+        Object lst = statusListClaims.get(StatusList.LST_KEY);
+        if (!(bits instanceof Number bitsNumber)) {
+            throw new StatusListValidationException(
+                    "Missing or malformed Status List entry: " + StatusList.BITS_KEY);
+        }
+        if (!(lst instanceof String lstString)) {
+            throw new StatusListValidationException(
+                    "Missing or malformed Status List entry: " + StatusList.LST_KEY);
+        }
         return StatusList.buildFromBytes()
-                .bits(bits)
-                .list(lst)
+                .bits(bitsNumber.intValue())
+                .list(Base64.getUrlDecoder().decode(lstString))
                 .build();
+    }
+
+    /**
+     * Applies the claim-level validation rules of Section 8.3 step 4 that are common to the
+     * JWT and CWT representations.
+     *
+     * @param subject     The sub (2) claim of the Status List Token
+     * @param issuedAt    The iat (6) claim, which Section 5.1 and Section 5.2 make REQUIRED
+     * @param expiresAt   The exp (4) claim, or null when the RECOMMENDED claim is absent
+     * @param expectedUri The uri from the Referenced Token's status_list claim, or null to skip step 4a
+     */
+    private static void validateClaims(String subject, Instant issuedAt, Instant expiresAt, String expectedUri) {
+        if (subject == null) {
+            throw new StatusListValidationException("Missing required claim: sub");
+        }
+        if (issuedAt == null) {
+            throw new StatusListValidationException("Missing required claim: iat");
+        }
+        // step 4a
+        if (expectedUri != null && !expectedUri.equals(subject)) {
+            throw new StatusListValidationException(
+                    "Status List Token subject " + subject + " does not match the Referenced Token uri " + expectedUri);
+        }
+        // step 4c
+        if (expiresAt != null && !Instant.now().isBefore(expiresAt)) {
+            throw new StatusListValidationException("Status List Token expired at " + expiresAt);
+        }
     }
 
     /**
@@ -147,7 +240,23 @@ public class StatusListToken {
      * @throws IOException   If there's an error processing the Status List data
      */
     public static StatusList verifySignatureAndGetStatusListFromCWT(@NonNull String statusListCwtHex, @NonNull PublicKey statusListSigningKey) throws COSEException, IOException {
-        return verifySignatureAndGetStatusListFromCWT(HexFormat.of().parseHex(statusListCwtHex), statusListSigningKey);
+        return verifySignatureAndGetStatusListFromCWT(HexFormat.of().parseHex(statusListCwtHex), statusListSigningKey, null);
+    }
+
+    /**
+     * Verifies a Status List CWT against the URI the Referenced Token pointed at, and
+     * extracts the Status List.
+     *
+     * @param statusListCwtHex     The Status List CWT as a hexadecimal string
+     * @param statusListSigningKey The public key used to verify the CWT signature
+     * @param expectedUri          The uri from the Referenced Token's status_list claim, or null to skip step 4a
+     * @return The extracted Status List if verification and validation succeed
+     * @throws COSEException                 If the CWT signature is invalid
+     * @throws IOException                   If there's an error processing the Status List data
+     * @throws StatusListValidationException If the token fails a Section 8.3 validation rule
+     */
+    public static StatusList verifySignatureAndGetStatusListFromCWT(@NonNull String statusListCwtHex, @NonNull PublicKey statusListSigningKey, String expectedUri) throws COSEException, IOException {
+        return verifySignatureAndGetStatusListFromCWT(HexFormat.of().parseHex(statusListCwtHex), statusListSigningKey, expectedUri);
     }
 
     /**
@@ -164,6 +273,27 @@ public class StatusListToken {
      * @throws IOException   If there's an error processing the Status List data
      */
     public static StatusList verifySignatureAndGetStatusListFromCWT(byte @NonNull [] statusListCwt, @NonNull PublicKey statusListSigningKey) throws COSEException, IOException {
+        return verifySignatureAndGetStatusListFromCWT(statusListCwt, statusListSigningKey, null);
+    }
+
+    /**
+     * Verifies a Status List CWT against the URI the Referenced Token pointed at, and
+     * extracts the Status List.
+     * <p>
+     * In addition to the signature, this applies the validation rules of Section 8.3: the
+     * CWT type in protected header 16, the presence of the required claims, expiry, and
+     * step 4a - the subject claim MUST equal the uri claim in the status_list object of
+     * the Referenced Token.
+     *
+     * @param statusListCwt        The Status List CWT as a byte array
+     * @param statusListSigningKey The public key used to verify the CWT signature
+     * @param expectedUri          The uri from the Referenced Token's status_list claim, or null to skip step 4a
+     * @return The extracted Status List if verification and validation succeed
+     * @throws COSEException                 If the CWT signature is invalid
+     * @throws IOException                   If there's an error processing the Status List data
+     * @throws StatusListValidationException If the token fails a Section 8.3 validation rule
+     */
+    public static StatusList verifySignatureAndGetStatusListFromCWT(byte @NonNull [] statusListCwt, @NonNull PublicKey statusListSigningKey, String expectedUri) throws COSEException, IOException {
         CBORDecoder decoder = new CBORDecoder(new ByteArrayInputStream(statusListCwt));
         CBORTaggedItem taggedItem = (CBORTaggedItem) decoder.next();
         COSESign1 sign1 = (COSESign1) taggedItem.getTagContent();
@@ -172,6 +302,18 @@ public class StatusListToken {
         if (!verifier.verify(sign1)) {
             throw new COSEException("Invalid CWT signature");
         }
+
+        Object type = sign1.getProtectedHeader().getParameters().get(COSE_TYPE_HEADER);
+        if (!STATUS_LIST_TYP_CWT.equals(type)) {
+            throw new StatusListValidationException(
+                    "Expected CWT type " + STATUS_LIST_TYP_CWT + " but was " + type);
+        }
+
+        CWTClaimsSet claims = CWTClaimsSet.build(sign1.getPayload());
+        validateClaims(claims.getSub(),
+                claims.getIat() == null ? null : claims.getIat().toInstant(),
+                claims.getExp() == null ? null : claims.getExp().toInstant(),
+                expectedUri);
 
         byte[] payload = (byte[]) sign1.getPayload().parse();
         CBORDecoder claimsDecoder = new CBORDecoder(new ByteArrayInputStream(payload));
@@ -186,7 +328,7 @@ public class StatusListToken {
             }
         }
 
-        throw new COSEException("Missing status list claim (" + CWT_STATUS_LIST_CLAIM + ")");
+        throw new StatusListValidationException("Missing required claim: " + CWT_STATUS_LIST_CLAIM + " (status list)");
     }
 
     /**
@@ -212,7 +354,7 @@ public class StatusListToken {
                 .issueTime(Date.from(issuedAt))
                 .expirationTime(Date.from(expiresAt))
                 .claim("ttl", timeToLive.getSeconds())
-                .claim("status_list", statusList.encodeAsMap(true))
+                .claim(STATUS_LIST_CLAIM, statusList.encodeAsMap(true))
                 .build();
         JWSHeader header = new JWSHeader.Builder(Utils.getJWSAlgorithm(signingKey))
                 .type(JOSE_STATUS_LIST_TYP_JWT)
@@ -274,7 +416,7 @@ public class StatusListToken {
         int algorithm = Utils.getCOSEAlgorithm(signingKey);
         COSEProtectedHeader protectedHeader = new COSEProtectedHeaderBuilder()
                 .alg(algorithm)
-                .put(16, STATUS_LIST_TYP_CWT)
+                .put(COSE_TYPE_HEADER, STATUS_LIST_TYP_CWT)
                 .build();
         COSEUnprotectedHeader unprotectedHeader = new COSEUnprotectedHeaderBuilder().kid(keyId).build();
         CBORByteArray payload = new CBORByteArray(encodedClaims);
